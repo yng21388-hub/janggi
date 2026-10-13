@@ -1,0 +1,14 @@
+<!doctype html><meta charset="utf-8"><title>engine test</title><pre id="log">loading…</pre><img src="/slow?ms=30000" alt="">
+<script src="engine/stockfish.js"></script>
+<script src="engine.js"></script>
+<script>
+var t0 = performance.now();
+function log(s) { document.getElementById('log').textContent += '\n' + ((performance.now() - t0) / 1000).toFixed(2) + 's ' + s; }
+log('SharedArrayBuffer: ' + (typeof SharedArrayBuffer) + ' / isolated: ' + self.crossOriginIsolated);
+var eng = new JanggiEngine({ nnue: 'engine/janggi.nnue', onStatus: log });
+eng.init().then(function (ok) {
+  log('init ' + ok + ' nnue=' + eng.nnue);
+  return eng.hints('rnba1abnr/4k4/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/4K4/RNBA1ABNR w - - 0 1', [], 3);
+}).then(function (list) { list.forEach(function (h) { log('hint ' + h.move + ' cp=' + h.cp + ' depth=' + h.depth + ' pv=' + h.pv.slice(0, 4).join(' ')); }); })
+  .catch(function (e) { log('ERROR ' + e); });
+</script>

@@ -1,0 +1,853 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>나무판 장기</title>
+<!-- GitHub Pages 처럼 보안 헤더를 못 거는 호스팅에서 AI 엔진(멀티스레드 WebAssembly)을 쓰기 위한 서비스워커. 첫 접속 때 한 번 새로고침된다. 로컬(node server.js)에서는 이미 격리돼 있어 아무 일도 안 한다. -->
+<script src="coi-serviceworker.js"></script>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@500;700;900&family=Noto+Serif+KR:wght@600;900&display=swap">
+<style>
+:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}
+img{max-width:100%}
+[hidden]:not([hidden=until-found i]){display:none!important}
+
+/* Layout: one narrow phone column — header, opponent card, wooden board, my card, action row. Single deliberate light "hanji + maple" look. */
+:root {
+  color-scheme: light;
+  --paper: #F4EEE3;
+  --card: #FCF9F3;
+  --line: #E3D8C6;
+  --ink: #2A2118;
+  --muted: #6E6152;
+  --wood: #EBCB93;
+  --wood-frame: #D9B278;
+  --wood-edge: #C49A5C;
+  --grid: #6A4A2C;
+  --han: #A8261D;
+  --cho: #1F4570;
+  --jade: #2F6B5C;
+  --ivory: #FBF5EA;
+  --brown: #8A5A2B;
+  --font-ui: 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+  --font-hanja: 'Noto Serif KR', 'Nanum Myeongjo', 'Batang', serif;
+}
+* { box-sizing: border-box; }
+body { background: var(--paper); color: var(--ink); font-family: var(--font-ui); }
+.app { max-width: 440px; margin: 0 auto; padding: 16px 16px 28px; display: flex; flex-direction: column; gap: 12px; }
+
+.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; }
+.brand { display: flex; align-items: baseline; gap: 8px; }
+.brand .mark { font-family: var(--font-hanja); font-weight: 900; font-size: 22px; color: var(--brown); letter-spacing: 2px; }
+.brand .name { font-weight: 700; font-size: 16px; }
+.stage { font-size: 12px; font-weight: 700; color: var(--jade); background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; white-space: nowrap; }
+
+.player { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 14px; border: 1.5px solid var(--line); background: var(--card); transition: border-color .2s; }
+.player.active { border-color: var(--jade); }
+.player.check { border-color: var(--han); }
+.avatar { width: 38px; height: 38px; flex: none; }
+.who { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.who .n { font-weight: 700; font-size: 15px; }
+.who .s { font-weight: 500; font-size: 12px; color: var(--muted); }
+.player.active .who .s { color: var(--jade); font-weight: 700; }
+.player.check .who .s { color: var(--han); font-weight: 700; }
+.caps { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 2px; max-width: 45%; min-height: 20px; }
+.cap { font-family: var(--font-hanja); font-weight: 900; font-size: 13px; width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; border-radius: 4px; background: var(--paper); }
+.cap.han { color: var(--han); } .cap.cho { color: var(--cho); }
+
+.frame { border-radius: 16px; background: var(--wood-frame); padding: 8px; box-shadow: 0 14px 30px rgba(92,60,25,.18), inset 0 0 0 1px var(--wood-edge); position: relative; }
+svg.board { display: block; width: 100%; height: auto; border-radius: 8px; background: var(--wood); touch-action: manipulation; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+svg.board:focus { outline: none; }
+svg.board:focus-visible { outline: 3px solid var(--jade); outline-offset: 4px; }
+.ready .piece { transition: transform .18s ease; }
+.ready .piece .lift { transition: transform .15s ease; }
+#cursor { display: none; }
+svg.board.kbd:focus #cursor { display: inline; }
+
+/* 마상 배치 선택 패널 */
+.setup { position: absolute; inset: 8px; border-radius: 8px; background: rgba(252,249,243,.96); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 16px; text-align: center; }
+.setup h2 { margin: 0; font-size: 17px; }
+.setup p { margin: 0; font-size: 12px; color: var(--muted); line-height: 1.6; }
+.setup .side { width: 100%; max-width: 320px; }
+.setup .side .t { font-weight: 700; font-size: 13px; margin-bottom: 6px; }
+.setup .side .t.han { color: var(--han); } .setup .side .t.cho { color: var(--cho); }
+.setup .opts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.setup .opts button { height: 44px; padding: 0; border-radius: 10px; border: 1.5px solid var(--line); background: var(--card); font-family: var(--font-ui); font-weight: 700; font-size: 13px; letter-spacing: 0; white-space: nowrap; color: var(--ink); cursor: pointer; }
+.setup .opts button.on { border-color: var(--jade); background: #E8F1ED; color: var(--jade); }
+.setup .go { height: 48px; padding: 0 28px; border-radius: 12px; border: none; background: var(--jade); color: #fff; font: 700 15px var(--font-ui); cursor: pointer; flex: none; }
+.setup .go:disabled { background: #B8AD9C; cursor: not-allowed; }
+.setup { justify-content: safe center; overflow-y: auto; gap: 10px; padding: 12px; }
+.setup .modes { grid-template-columns: repeat(3, 1fr); }
+.setup .row { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 12px; font-weight: 700; }
+.setup .row .l { flex: none; width: 60px; text-align: left; color: var(--muted); }
+.setup .row input[type=range] { flex: 1; min-width: 0; accent-color: var(--jade); margin: 0; }
+.setup .row b { flex: none; width: 24px; text-align: right; color: var(--jade); font-size: 14px; }
+.setup .row .pick { display: flex; gap: 6px; flex: 1; }
+.setup .row .pick button { flex: 1; height: 36px; border-radius: 10px; border: 1.5px solid var(--line); background: var(--card); font: 700 12px var(--font-ui); color: var(--ink); cursor: pointer; white-space: nowrap; }
+.setup .row .pick button.on { border-color: var(--jade); background: #E8F1ED; color: var(--jade); }
+.setup .eng { font-size: 11px; color: var(--muted); min-height: 14px; }
+.setup .eng.bad { color: var(--han); font-weight: 700; }
+#advice line { stroke-linecap: round; }
+#advice text { font-family: var(--font-ui); font-weight: 900; font-size: 12px; fill: #fff; pointer-events: none; }
+
+.status { min-height: 22px; text-align: center; font-size: 14px; font-weight: 500; color: var(--muted); }
+.status b { color: var(--ink); }
+.status.win { color: var(--jade); font-weight: 700; font-size: 16px; }
+.status.alert { color: var(--han); font-weight: 700; }
+
+.actions { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+.actions button { height: 58px; border-radius: 14px; border: 1px solid var(--line); background: var(--card); color: var(--ink); font: 700 12px var(--font-ui); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; cursor: pointer; padding: 0 2px; white-space: nowrap; }
+.actions button.on { border-color: var(--jade); color: var(--jade); background: #E8F1ED; }
+/* 복기 패널 */
+.review { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: 14px; border: 1.5px solid var(--jade); background: var(--card); }
+.review .nav { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.review .nav button, .review .tools button { height: 40px; border-radius: 10px; border: 1px solid var(--line); background: var(--paper); font: 700 13px var(--font-ui); color: var(--ink); cursor: pointer; }
+.review .nav button:disabled { color: #9C8F7E; cursor: not-allowed; }
+.review .tools { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.review .graph { width: 100%; height: 76px; display: block; background: var(--paper); border-radius: 8px; cursor: pointer; }
+.review .info { font-size: 12px; line-height: 1.7; min-height: 40px; }
+.review .info b { color: var(--ink); }
+.review .info .bad { color: var(--han); font-weight: 700; }
+.review .info .meh { color: #B7791F; font-weight: 700; }
+.review .info .ok { color: var(--jade); font-weight: 700; }
+.review .prog { font-size: 11px; color: var(--muted); }
+.actions button:hover:not(:disabled) { border-color: var(--wood-edge); }
+.actions button:focus-visible { outline: 3px solid var(--jade); outline-offset: 2px; }
+.actions button:disabled { cursor: not-allowed; color: #9C8F7E; }
+.actions button.warn { color: var(--han); border-color: var(--han); }
+.actions small { font-weight: 500; font-size: 11px; color: #8A7D6B; }
+.note { font-size: 12px; color: var(--muted); text-align: center; line-height: 1.6; }
+@media (prefers-reduced-motion: reduce) { .piece, .piece .lift, .player { transition: none; } }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <header class="top">
+    <div class="brand"><span class="mark">將棋</span><span class="name">나무판 장기</span></div>
+    <span class="stage" id="stage">3단계 · AI 대국 · 복기</span>
+  </header>
+
+  <section class="player" id="card-han" aria-label="한나라">
+    <svg class="avatar" viewBox="-20 -20 40 40" aria-hidden="true"><polygon points="-7.6,-19 7.6,-19 19,-7.6 19,7.6 7.6,19 -7.6,19 -19,7.6 -19,-7.6" fill="#A8261D"></polygon><polygon points="-6.8,-17 6.8,-17 17,-6.8 17,6.8 6.8,17 -6.8,17 -17,6.8 -17,-6.8" fill="#FBF5EA"></polygon><text y="1" text-anchor="middle" dominant-baseline="central" font-family="Noto Serif KR, serif" font-weight="900" font-size="19" fill="#A8261D">漢</text></svg>
+    <div class="who"><span class="n">한(漢)</span><span class="s" id="sub-han">대기</span></div>
+    <div class="caps" id="caps-han" aria-label="한이 잡은 말"></div>
+  </section>
+
+  <div class="frame">
+    <svg class="board" id="board" viewBox="0 0 364 404" tabindex="0" role="application" aria-label="장기판. 화살표로 칸을 옮기고 Enter로 말을 고르거나 둡니다.">
+      <defs>
+        <filter id="sh" x="-30%" y="-30%" width="160%" height="170%"><feDropShadow dx="0" dy="2" stdDeviation="1" flood-color="#46301A" flood-opacity=".3"></feDropShadow></filter>
+        <filter id="shSel" x="-40%" y="-40%" width="180%" height="190%"><feDropShadow dx="0" dy="4" stdDeviation="3" flood-color="#2F6B5C" flood-opacity=".5"></feDropShadow></filter>
+      </defs>
+      <g stroke="#6A4A2C" stroke-width="1.1" fill="none" id="grid"></g>
+      <g id="marks"></g>
+      <g id="pieces"></g>
+      <g id="hints"></g>
+      <g id="advice"></g>
+      <circle id="cursor" r="20" fill="none" stroke="#2F6B5C" stroke-width="2.5" stroke-dasharray="4 3"></circle>
+    </svg>
+    <div class="setup" id="setup" hidden>
+      <h2>새 대국</h2>
+      <div class="side">
+        <div class="t">대국 방식</div>
+        <div class="opts modes" id="modes">
+          <button type="button" data-mode="hh" class="on">사람 vs 사람</button>
+          <button type="button" data-mode="ha">사람 vs AI</button>
+          <button type="button" data-mode="aa">AI vs AI</button>
+        </div>
+        <div class="row" id="row-color" hidden><span class="l">내 편</span><div class="pick"><button type="button" data-color="cho" class="on">초 (먼저 둠)</button><button type="button" data-color="han">한</button></div></div>
+        <div class="row" id="row-lv-ai" hidden><span class="l">AI 난이도</span><input type="range" id="lv-ai" min="1" max="10" value="5"><b id="lv-ai-v">5</b></div>
+        <div class="row" id="row-lv-cho" hidden><span class="l">초 AI</span><input type="range" id="lv-cho" min="1" max="10" value="5"><b id="lv-cho-v">5</b></div>
+        <div class="row" id="row-lv-han" hidden><span class="l">한 AI</span><input type="range" id="lv-han" min="1" max="10" value="5"><b id="lv-han-v">5</b></div>
+        <div class="eng" id="eng-status"></div>
+      </div>
+      <p>마상 배치 · 한이 먼저 정하고 초가 정한 뒤, 초가 먼저 둡니다.</p>
+      <div class="side"><div class="t han">한(漢)</div><div class="opts" id="opts-han"></div></div>
+      <div class="side"><div class="t cho">초(楚)</div><div class="opts" id="opts-cho"></div></div>
+      <button type="button" class="go" id="go">대국 시작</button>
+    </div>
+  </div>
+
+  <p class="status" id="status" aria-live="polite"></p>
+
+  <section class="player" id="card-cho" aria-label="초나라">
+    <svg class="avatar" viewBox="-20 -20 40 40" aria-hidden="true"><polygon points="-7.6,-19 7.6,-19 19,-7.6 19,7.6 7.6,19 -7.6,19 -19,7.6 -19,-7.6" fill="#1F4570"></polygon><polygon points="-6.8,-17 6.8,-17 17,-6.8 17,6.8 6.8,17 -6.8,17 -17,6.8 -17,-6.8" fill="#FBF5EA"></polygon><text y="1" text-anchor="middle" dominant-baseline="central" font-family="Noto Serif KR, serif" font-weight="900" font-size="19" fill="#1F4570">楚</text></svg>
+    <div class="who"><span class="n">초(楚)</span><span class="s" id="sub-cho">대기</span></div>
+    <div class="caps" id="caps-cho" aria-label="초가 잡은 말"></div>
+  </section>
+
+  <div class="actions">
+    <button type="button" id="undo">
+      <svg aria-hidden="true" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 14 4 9 9 4"></polyline><path d="M20 20v-7a4 4 0 0 0-4-4H4"></path></svg>
+      무르기
+    </button>
+    <button type="button" id="pass">
+      <svg aria-hidden="true" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M8 12h8"></path></svg>
+      한 수 쉬기
+    </button>
+    <button type="button" id="hint" disabled>
+      <svg aria-hidden="true" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"></path><path d="M10 22h4"></path><path d="M12 2a7 7 0 0 0-4 12.7V16h8v-1.3A7 7 0 0 0 12 2z"></path></svg>
+      <span>훈수 <small id="hint-sub">AI 정수</small></span>
+    </button>
+    <button type="button" id="review-btn" disabled>
+      <svg aria-hidden="true" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 17 9 11 13 15 21 7"></polyline><polyline points="14 7 21 7 21 14"></polyline></svg>
+      복기
+    </button>
+    <button type="button" id="reset">
+      <svg aria-hidden="true" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"></path><polyline points="3 3 3 9 9 9"></polyline></svg>
+      <span id="reset-label">새 판</span>
+    </button>
+  </div>
+
+  <section class="review" id="review" hidden aria-label="복기">
+    <div class="nav"><button type="button" id="rv-first" title="처음">|◀</button><button type="button" id="rv-prev" title="이전 수">◀</button><button type="button" id="rv-next" title="다음 수">▶</button><button type="button" id="rv-last" title="끝">▶|</button></div>
+    <svg class="graph" id="rv-graph" viewBox="0 0 300 76" preserveAspectRatio="none" aria-label="형세 그래프. 위가 초 우세"></svg>
+    <div class="info" id="rv-info"></div>
+    <div class="prog" id="rv-prog"></div>
+    <div class="tools"><button type="button" id="rv-save">기보 저장</button><button type="button" id="rv-load">기보 열기</button><button type="button" id="rv-exit">대국으로</button></div>
+    <input type="file" id="rv-file" accept=".json,application/json" hidden>
+  </section>
+
+  <p class="note" id="note">내 차례의 말을 누르면 갈 수 있는 자리가 표시됩니다. 장군이면 피해야 하고, 외통이면 끝.<br>궁이 마주보면 빅장. 상대가 피하지 않으면 무승부. 훈수는 최고 난이도 AI가 고른 정수 3개를 보여줍니다.</p>
+</div>
+
+<script src="engine/stockfish.js"></script>
+<script src="engine.js"></script>
+<script src="rules.js"></script>
+<script>
+(function () {
+  var J = window.Janggi, U = window.JanggiUci;
+  var NS = 'http://www.w3.org/2000/svg';
+  var X0 = 22, STEP = 40, BW = X0 * 2 + 320, BH = X0 * 2 + 360;
+  var SIZE = { K: 38, R: 33, N: 33, E: 33, C: 33, A: 27, P: 27 };
+  var LABEL = {
+    han: { K: '漢', R: '車', N: '馬', E: '象', A: '士', C: '包', P: '兵' },
+    cho: { K: '楚', R: '車', N: '馬', E: '象', A: '士', C: '包', P: '卒' }
+  };
+  var INK = { han: '#A8261D', cho: '#1F4570' };
+  var SIDE_NAME = { han: '한', cho: '초' };
+  var JADE = '#2F6B5C';
+  var SUBJ = { han: '한이', cho: '초가' }, TOPIC = { han: '한은', cho: '초는' };
+  var SETUP_KEYS = ['NENE', 'ENEN', 'NEEN', 'ENNE'];
+  var SETUP_LABEL = { NENE: '마상마상', ENEN: '상마상마', NEEN: '마상상마', ENNE: '상마마상' };
+
+  // ---------- 상태 ----------
+  var S;            // { board, turn, sel, history, last, winner, cursor, msg, legal, facingBy, setupHan, setupCho, started }
+  var nodes = {};   // id -> svg nodes
+
+  function freshState(setupHan, setupCho) {
+    var b = J.initialBoard(setupHan, setupCho);
+    return {
+      board: b, turn: 'cho', sel: null, history: [], last: null,
+      winner: null, cursor: { c: 4, r: 6 }, msg: '', legal: [], facingBy: null,
+      setupHan: setupHan, setupCho: setupCho, started: false,
+      startFen: U.toFen(b, 'cho'), uci: []   // 엔진용: 시작 국면 + 지금까지 둔 수(UCI)
+    };
+  }
+
+  // ---------- AI 설정 ----------
+  var MODE = { kind: 'hh', human: 'cho', lv: { han: 5, cho: 5 } }; // kind: hh 사람끼리 / ha 사람 vs AI / aa AI끼리
+  var eng = null, thinking = false, hinting = false, gen = 0;        // gen: 새 판·무르기마다 올려서 늦게 온 엔진 답을 버린다
+  function engineOK() { return !!(eng && eng.available); }
+  function aiSide(side) { return MODE.kind === 'aa' || (MODE.kind === 'ha' && side !== MODE.human); }
+  function humanTurn() { return S.started && !S.winner && !aiSide(S.turn) && !R.active; }
+
+  // ---------- 복기 상태 ----------
+  var R = { active: false, idx: 0, positions: [], evals: [], gen: 0 }; // positions[i] = i수 둔 뒤 국면, evals[i] = 그 국면 평가
+  function curBoard() { return R.active ? R.positions[R.idx] : S.board; }
+  function turnAt(i) { return i % 2 === 0 ? 'cho' : 'han'; } // 초가 먼저, 쉬기도 한 수로 센다
+
+  var board = document.getElementById('board');
+  var gridG = document.getElementById('grid');
+  var marksG = document.getElementById('marks');
+  var piecesG = document.getElementById('pieces');
+  var hintsG = document.getElementById('hints');
+  var cursor = document.getElementById('cursor');
+
+  function el(tag, attrs, parent) {
+    var e = document.createElementNS(NS, tag);
+    for (var k in attrs) e.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+  function px(c) { return X0 + STEP * c; }
+  function clear(g) { while (g.firstChild) g.removeChild(g.firstChild); }
+
+  // 판 선
+  el('rect', { x: X0, y: X0, width: 320, height: 360, 'stroke-width': 1.8 }, gridG);
+  for (var c = 1; c < 8; c++) el('line', { x1: px(c), y1: X0, x2: px(c), y2: X0 + 360 }, gridG);
+  for (var r = 1; r < 9; r++) el('line', { x1: X0, y1: px(r), x2: X0 + 320, y2: px(r) }, gridG);
+  [[0, 2], [7, 9]].forEach(function (rr) {
+    el('line', { x1: px(3), y1: px(rr[0]), x2: px(5), y2: px(rr[1]) }, gridG);
+    el('line', { x1: px(5), y1: px(rr[0]), x2: px(3), y2: px(rr[1]) }, gridG);
+  });
+
+  function octPoints(s) {
+    var a = s / 2, b = s * 0.2;
+    return [[-b, -a], [b, -a], [a, -b], [a, b], [b, a], [-b, a], [-a, b], [-a, -b]].map(function (p) { return p[0].toFixed(2) + ',' + p[1].toFixed(2); }).join(' ');
+  }
+
+  // 보드 순회 도우미
+  function eachPiece(fn) {
+    var b = curBoard();
+    for (var r = 0; r < J.ROWS; r++) for (var c = 0; c < J.COLS; c++) { var p = b[r][c]; if (p) fn(p, c, r); }
+  }
+  function findById(id) {
+    for (var r = 0; r < J.ROWS; r++) for (var c = 0; c < J.COLS; c++) { var p = S.board[r][c]; if (p && p.id === id) return { p: p, c: c, r: r }; }
+    return null;
+  }
+
+  // 말 그래픽 생성(새 판마다 다시 만든다)
+  function buildNodes() {
+    clear(piecesG); nodes = {};
+    eachPiece(function (p) {
+      var s = SIZE[p.t];
+      var g = el('g', { class: 'piece' }, piecesG);
+      var lift = el('g', { class: 'lift', filter: 'url(#sh)' }, g);
+      var rim = el('polygon', { points: octPoints(s), fill: INK[p.side] }, lift);
+      var face = el('polygon', { points: octPoints(s - 3), fill: '#FBF5EA' }, lift);
+      var txt = el('text', { 'text-anchor': 'middle', 'dominant-baseline': 'central', y: 1, 'font-family': 'Noto Serif KR, Nanum Myeongjo, serif', 'font-weight': 900, 'font-size': Math.round(s * 0.54), fill: INK[p.side] }, lift);
+      txt.textContent = LABEL[p.side][p.t];
+      nodes[p.id] = { g: g, lift: lift, rim: rim, face: face, s: s, side: p.side, t: p.t };
+    });
+  }
+
+  // ---------- 렌더 ----------
+  function render() {
+    var alive = {};
+    eachPiece(function (p, c, r) {
+      alive[p.id] = true;
+      var n = nodes[p.id]; if (!n) return;
+      n.g.style.display = '';
+      n.g.style.transform = 'translate(' + px(c) + 'px,' + px(r) + 'px)';
+      var sel = S.sel !== null && S.sel === p.id;
+      n.rim.setAttribute('fill', sel ? JADE : INK[p.side]);
+      n.face.setAttribute('points', octPoints(n.s - (sel ? 6 : 3)));
+      n.lift.setAttribute('filter', sel ? 'url(#shSel)' : 'url(#sh)');
+      n.lift.style.transform = sel ? 'translateY(-3px) scale(1.06)' : '';
+      if (sel) piecesG.appendChild(n.g);
+    });
+    for (var id in nodes) if (!alive[id]) nodes[id].g.style.display = 'none';
+
+    clear(marksG);
+    var board0 = curBoard(), turn0 = R.active ? turnAt(R.idx) : S.turn;
+    var last = S.last;
+    if (R.active) { var lh = R.idx ? S.history[R.idx - 1] : null; last = lh && lh.type === 'move' ? { from: lh.from, to: lh.to } : null; }
+    if (last) {
+      el('circle', { cx: px(last.from.c), cy: px(last.from.r), r: 6, fill: 'none', stroke: JADE, 'stroke-width': 2, opacity: .7 }, marksG);
+      el('circle', { cx: px(last.to.c), cy: px(last.to.r), r: 22, fill: JADE, opacity: .16 }, marksG);
+    }
+    // 장군이면 궁 표시
+    if ((R.active || (!S.winner && S.started)) && J.inCheck(board0, turn0)) {
+      var k = J.findKing(board0, turn0);
+      if (k) el('circle', { cx: px(k.c), cy: px(k.r), r: 23, fill: 'none', stroke: INK.han, 'stroke-width': 3, opacity: .8 }, marksG);
+    }
+    // 갈 수 있는 자리
+    clear(hintsG);
+    (R.active ? [] : S.legal).forEach(function (m) {
+      var tgt = S.board[m.r][m.c];
+      if (tgt) el('circle', { cx: px(m.c), cy: px(m.r), r: 19, fill: 'none', stroke: JADE, 'stroke-width': 3, opacity: .85, 'pointer-events': 'none' }, hintsG);
+      else el('circle', { cx: px(m.c), cy: px(m.r), r: 6, fill: JADE, opacity: .8, 'pointer-events': 'none' }, hintsG);
+    });
+
+    cursor.setAttribute('cx', px(S.cursor.c));
+    cursor.setAttribute('cy', px(S.cursor.r));
+
+    var captured = { han: [], cho: [] }; // side가 잡은 상대 말
+    (R.active ? S.history.slice(0, R.idx) : S.history).forEach(function (h) { if (h.captured) captured[h.captured.side === 'han' ? 'cho' : 'han'].push(h.captured); });
+
+    ['han', 'cho'].forEach(function (side) {
+      var card = document.getElementById('card-' + side);
+      var active = R.active ? turnAt(R.idx) === side : (!S.winner && S.started && S.turn === side);
+      var chk = active && J.inCheck(board0, side);
+      card.classList.toggle('active', active && !chk);
+      card.classList.toggle('check', chk);
+      var sub = R.active ? (active ? '복기 · 둘 차례' : '복기') : S.winner ? (S.winner === 'draw' ? '무승부' : (S.winner === side ? '승리' : '패배')) : (!S.started ? '배치 중' : (active ? (chk ? '장군!' : (thinking && aiSide(side) ? '생각 중…' : '차례')) : '대기'));
+      if (S.started && aiSide(side)) sub += ' · AI ' + MODE.lv[side] + '단계';
+      document.getElementById('sub-' + side).textContent = sub;
+      var caps = document.getElementById('caps-' + side);
+      caps.innerHTML = '';
+      captured[side].forEach(function (p) {
+        var sp = document.createElement('span');
+        sp.className = 'cap ' + p.side;
+        sp.textContent = LABEL[p.side][p.t];
+        caps.appendChild(sp);
+      });
+    });
+
+    var st = document.getElementById('status');
+    st.classList.toggle('win', !!S.winner);
+    st.classList.toggle('alert', !S.winner && /장군|빅장/.test(S.msg));
+    if (R.active) { st.classList.remove('win'); st.classList.remove('alert'); st.innerHTML = '<b>복기</b> · ' + (R.idx === 0 ? '시작 국면' : R.idx + '수 둔 뒤') + ' / 총 ' + S.history.length + '수'; }
+    else if (S.winner === 'draw') st.textContent = '빅장. 무승부입니다.';
+    else if (S.winner) st.textContent = SIDE_NAME[S.winner] + ' 승! ' + (S.msg || '외통입니다.');
+    else if (!S.started) st.textContent = '마상 배치를 고르고 대국을 시작하세요.';
+    else if (S.msg) st.textContent = S.msg;
+    else st.innerHTML = '<b>' + SIDE_NAME[S.turn] + '</b> 차례 · ' + (S.history.length + 1) + '수째' + (S.sel !== null ? ' · 옮길 자리를 누르세요' : '');
+
+    document.getElementById('undo').disabled = S.history.length === 0 || !S.started || MODE.kind === 'aa' || R.active;
+    document.getElementById('review-btn').disabled = !S.started || S.history.length === 0;
+    document.getElementById('review-btn').classList.toggle('on', R.active);
+    document.getElementById('pass').disabled = !humanTurn() || !J.canPass(S.board, S.turn) || hinting;
+    document.getElementById('hint').disabled = !engineOK() || !humanTurn() || hinting;
+  }
+
+  // ---------- 진행 ----------
+  function afterMove(side) {
+    // side가 방금 두었다. 다음 차례 판정.
+    var next = side === 'han' ? 'cho' : 'han';
+    S.turn = next; S.sel = null; S.legal = [];
+    var st = J.status(S.board, next);
+    if (st.checkmate) { S.winner = side; S.msg = '외통입니다.'; return; }
+    if (st.facing) {
+      if (S.facingBy && S.facingBy !== side) { S.winner = 'draw'; return; } // 상대가 빅장을 피하지 않음
+      S.facingBy = side; S.msg = '빅장! ' + SUBJ[next] + ' 피하지 않으면 무승부입니다.';
+      return;
+    }
+    S.facingBy = null;
+    if (st.check) S.msg = '장군!';
+    else if (st.mustPass) { S.msg = TOPIC[next] + ' 둘 수가 없어 한 수 쉽니다.'; }
+    else S.msg = '';
+  }
+
+  function doMove(from, to) {
+    var res = J.makeMove(S.board, from, to);
+    var mover = S.board[from.r][from.c];
+    S.history.push({ type: 'move', from: from, to: to, piece: { side: mover.side, t: mover.t }, captured: res.captured, prev: { last: S.last, winner: S.winner, msg: S.msg, facingBy: S.facingBy } });
+    S.uci.push(U.moveToUci(from, to));
+    S.board = res.board;
+    S.last = { from: from, to: to };
+    clear(adviceG);
+    afterMove(mover.side);
+  }
+
+  function doPass() {
+    S.history.push({ type: 'pass', side: S.turn, captured: null, prev: { last: S.last, winner: S.winner, msg: S.msg, facingBy: S.facingBy } });
+    S.uci.push(U.passUci(S.board, S.turn));
+    var side = S.turn; S.last = null;
+    clear(adviceG);
+    afterMove(side);
+    if (!S.winner && !/장군|빅장/.test(S.msg)) S.msg = SUBJ[side] + ' 한 수 쉬었습니다. ' + SIDE_NAME[S.turn] + ' 차례';
+  }
+
+  // ---------- AI 착수 ----------
+  function scheduleAI(delay) {
+    if (!S.started || S.winner || !aiSide(S.turn)) return;
+    var g = gen; setTimeout(function () { if (g === gen) think(); }, delay || 60);
+  }
+  function think() {
+    if (thinking || !S.started || S.winner || !aiSide(S.turn)) return;
+    var side = S.turn, g = gen;
+    if (!engineOK()) { S.msg = 'AI 엔진이 없어 ' + SIDE_NAME[side] + ' 수를 둘 수 없습니다. (node server.js 로 열어야 합니다)'; render(); return; }
+    if (J.status(S.board, side).mustPass) { doPass(); render(); scheduleAI(400); return; }
+    thinking = true; S.sel = null; S.legal = []; S.msg = SIDE_NAME[side] + ' AI 생각 중…'; render();
+    eng.bestMove(S.startFen, S.uci, MODE.lv[side]).then(function (r) {
+      thinking = false; if (g !== gen) return;
+      applyAI(side, r.move); render(); scheduleAI(MODE.kind === 'aa' ? 450 : 120);
+    }, function (e) { thinking = false; if (g !== gen) return; S.msg = 'AI 오류: ' + e.message; render(); });
+  }
+  // 엔진 수가 우리 규칙상 합법이면 그대로, 아니면(규칙 차이·오류) 임의의 합법수
+  function applyAI(side, u) {
+    var mv = u && U.uciToMove(u);
+    if (mv && mv.pass && J.canPass(S.board, side)) { doPass(); return; }
+    if (mv && !mv.pass) {
+      var p = S.board[mv.from.r][mv.from.c];
+      if (p && p.side === side && J.legalMoves(S.board, mv.from.c, mv.from.r).some(function (m) { return m.c === mv.to.c && m.r === mv.to.r; })) { doMove(mv.from, mv.to); return; }
+    }
+    var all = J.allLegalMoves(S.board, side);
+    if (all.length) { var m = all[Math.floor(Math.random() * all.length)]; doMove(m.from, m.to); } else doPass();
+  }
+
+  // ---------- 훈수 ----------
+  var adviceG = document.getElementById('advice');
+  function fmtScore(cp, mate, side) {
+    if (mate !== null) return mate > 0 ? '외통 ' + mate + '수' : '외통 당함 ' + (-mate) + '수';
+    if (cp === null) return '';
+    var v = cp / 100; return (v > 0 ? '+' : '') + v.toFixed(1);
+  }
+  function showAdvice(side, list) {
+    clear(adviceG);
+    if (!list.length) { S.msg = '훈수를 찾지 못했습니다.'; return; }
+    var parts = [];
+    list.forEach(function (h, i) {
+      var mv = U.uciToMove(h.move); if (!mv) return;
+      var op = i === 0 ? .95 : .55, w = i === 0 ? 4 : 3;
+      if (mv.pass) { el('circle', { cx: px(mv.from.c), cy: px(mv.from.r), r: 21, fill: 'none', stroke: JADE, 'stroke-width': w, 'stroke-dasharray': '5 4', opacity: op, 'pointer-events': 'none' }, adviceG); }
+      else {
+        el('line', { x1: px(mv.from.c), y1: px(mv.from.r), x2: px(mv.to.c), y2: px(mv.to.r), stroke: JADE, 'stroke-width': w, opacity: op, 'pointer-events': 'none' }, adviceG);
+        el('circle', { cx: px(mv.to.c), cy: px(mv.to.r), r: 9, fill: JADE, opacity: op, 'pointer-events': 'none' }, adviceG);
+        var t = el('text', { x: px(mv.to.c), y: px(mv.to.r) + 1, 'text-anchor': 'middle', 'dominant-baseline': 'central' }, adviceG); t.textContent = i + 1;
+      }
+      var p = mv.pass ? null : S.board[mv.from.r][mv.from.c];
+      var num = function (s) { return (s.r + 1) + '' + (s.c + 1); }; // 협회식 좌표: 행(위부터 1~10)+열(왼쪽부터 1~9)
+      parts.push((i + 1) + ' ' + (mv.pass ? '한 수 쉬기' : (p ? LABEL[p.side][p.t] : '') + num(mv.from) + '→' + num(mv.to)) + ' (' + fmtScore(h.cp, h.mate, side) + ')');
+    });
+    S.msg = '정수: ' + parts.join(' · ');
+  }
+  document.getElementById('hint').addEventListener('click', function () {
+    if (!engineOK() || !humanTurn() || hinting) return;
+    hinting = true; var g = gen, side = S.turn;
+    S.sel = null; S.legal = []; S.msg = '훈수 생각 중…'; render();
+    eng.hints(S.startFen, S.uci, 3).then(function (list) {
+      hinting = false; if (g !== gen) return;
+      showAdvice(side, list); render();
+    }, function (e) { hinting = false; if (g !== gen) return; S.msg = '훈수 오류: ' + e.message; render(); });
+  });
+
+  function tap(c, r) {
+    S.msg = ''; S.cursor = { c: c, r: r };
+    if (R.active) { render(); return; }
+    if (S.winner || !S.started) { render(); return; }
+    if (aiSide(S.turn)) { S.msg = thinking ? SIDE_NAME[S.turn] + ' AI 생각 중…' : SIDE_NAME[S.turn] + ' AI 차례입니다.'; render(); return; }
+    if (hinting) { S.msg = '훈수 생각 중…'; render(); return; }
+    clear(adviceG);
+    var p = S.board[r][c];
+    if (S.sel === null) {
+      if (p && p.side === S.turn) { S.sel = p.id; S.legal = J.legalMoves(S.board, c, r); if (!S.legal.length) S.msg = '이 말은 지금 갈 수 있는 자리가 없어요.'; }
+      else if (p) S.msg = '지금은 ' + SIDE_NAME[S.turn] + ' 차례예요.';
+    } else {
+      var from = findById(S.sel);
+      if (p && p.side === S.turn) {
+        if (p.id === S.sel) { S.sel = null; S.legal = []; }
+        else { S.sel = p.id; S.legal = J.legalMoves(S.board, c, r); }
+      } else if (S.legal.some(function (m) { return m.c === c && m.r === r; })) {
+        doMove({ c: from.c, r: from.r }, { c: c, r: r });
+        scheduleAI();
+      } else {
+        S.msg = '그 자리로는 갈 수 없어요.';
+      }
+    }
+    render();
+  }
+
+  board.addEventListener('click', function (e) {
+    board.classList.remove('kbd');
+    var pt = board.createSVGPoint();
+    pt.x = e.clientX; pt.y = e.clientY;
+    var ctm = board.getScreenCTM();
+    if (!ctm) return;
+    var loc = pt.matrixTransform(ctm.inverse());
+    var c = Math.round((loc.x - X0) / STEP), r = Math.round((loc.y - X0) / STEP);
+    if (c < 0 || c > 8 || r < 0 || r > 9) return;
+    tap(c, r);
+  });
+
+  board.addEventListener('keydown', function (e) {
+    var d = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+    if (d) {
+      e.preventDefault(); board.classList.add('kbd');
+      S.cursor = { c: Math.min(8, Math.max(0, S.cursor.c + d[0])), r: Math.min(9, Math.max(0, S.cursor.r + d[1])) };
+      render();
+    } else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault(); board.classList.add('kbd'); tap(S.cursor.c, S.cursor.r);
+    } else if (e.key === 'Escape') { S.sel = null; S.legal = []; render(); }
+  });
+
+  function cancelEngine() { gen++; thinking = false; hinting = false; if (eng && eng.sf) eng.stop(); clear(adviceG); }
+  function undoOne() {
+    var h = S.history.pop(); if (!h) return false;
+    S.uci.pop();
+    if (h.type === 'move') {
+      var nb = J.cloneBoard(S.board);
+      var p = nb[h.to.r][h.to.c];
+      nb[h.from.r][h.from.c] = p; nb[h.to.r][h.to.c] = h.captured || null;
+      S.board = nb; S.turn = h.piece.side;
+    } else { S.turn = h.side; }
+    S.last = h.prev.last; S.winner = h.prev.winner; S.msg = ''; S.facingBy = h.prev.facingBy;
+    S.sel = null; S.legal = [];
+    return true;
+  }
+  document.getElementById('undo').addEventListener('click', function () {
+    if (!S.history.length || MODE.kind === 'aa') return;
+    cancelEngine();
+    undoOne();
+    if (MODE.kind === 'ha' && aiSide(S.turn)) undoOne(); // AI 수를 물렀으면 내 수까지 물러 내 차례로
+    render(); scheduleAI();
+  });
+
+  document.getElementById('pass').addEventListener('click', function () {
+    if (!humanTurn() || hinting || !J.canPass(S.board, S.turn)) return;
+    doPass(); render(); scheduleAI();
+  });
+
+  // ---------- 복기 ----------
+  var reviewPanel = document.getElementById('review'), rvInfo = document.getElementById('rv-info'), rvProg = document.getElementById('rv-prog'), rvGraph = document.getElementById('rv-graph');
+  var MATE_CP = 3000, BLUNDER = 250, MISTAKE = 100; // 평가 단위: 엔진 cp. 손해가 이 이상이면 실수/악수
+  function enterReview() {
+    if (!S.started || !S.history.length || R.active) return;
+    cancelEngine();
+    var b = J.initialBoard(S.setupHan, S.setupCho); // 말 id 가 S 와 같은 순서로 다시 만들어진다
+    R.positions = [b];
+    S.history.forEach(function (h) { b = h.type === 'move' ? J.makeMove(b, h.from, h.to).board : J.cloneBoard(b); R.positions.push(b); });
+    R.active = true; R.idx = R.positions.length - 1; R.evals = []; R.gen++;
+    reviewPanel.hidden = false; S.sel = null; S.legal = [];
+    render(); reviewRender(); analyze();
+  }
+  function exitReview() {
+    if (!R.active) return;
+    R.active = false; R.gen++; if (eng && eng.sf) eng.stop();
+    reviewPanel.hidden = true; clear(adviceG); S.msg = '';
+    render(); scheduleAI();
+  }
+  function goIdx(i) { R.idx = Math.max(0, Math.min(R.positions.length - 1, i)); render(); reviewRender(); }
+  document.getElementById('review-btn').addEventListener('click', function () { if (R.active) exitReview(); else enterReview(); });
+  document.getElementById('rv-exit').addEventListener('click', exitReview);
+  document.getElementById('rv-first').addEventListener('click', function () { goIdx(0); });
+  document.getElementById('rv-prev').addEventListener('click', function () { goIdx(R.idx - 1); });
+  document.getElementById('rv-next').addEventListener('click', function () { goIdx(R.idx + 1); });
+  document.getElementById('rv-last').addEventListener('click', function () { goIdx(R.positions.length - 1); });
+  document.addEventListener('keydown', function (e) {
+    if (!R.active || e.target.tagName === 'INPUT') return;
+    if (e.key === 'ArrowLeft') { e.preventDefault(); goIdx(R.idx - 1); }
+    else if (e.key === 'ArrowRight') { e.preventDefault(); goIdx(R.idx + 1); }
+    else if (e.key === 'Home') { e.preventDefault(); goIdx(0); }
+    else if (e.key === 'End') { e.preventDefault(); goIdx(R.positions.length - 1); }
+  }, true);
+  rvGraph.addEventListener('click', function (e) {
+    var rect = rvGraph.getBoundingClientRect(), n = R.positions.length;
+    if (n < 2) return;
+    goIdx(Math.round((e.clientX - rect.left) / rect.width * (n - 1)));
+  });
+
+  // 초 기준 점수(+ 초 우세). 외통은 ±MATE_CP
+  function choCp(c, side) { var v = c.mate !== null ? (c.mate > 0 ? MATE_CP : -MATE_CP) : c.cp; return side === 'cho' ? v : -v; }
+  function sideCp(cp, side) { return side === 'cho' ? cp : -cp; }
+  function fmtCho(cp) {
+    if (cp === null || cp === undefined) return '－';
+    if (Math.abs(cp) >= MATE_CP) return cp > 0 ? '초 외통' : '한 외통';
+    var v = cp / 100; return (v > 0 ? '+' : '') + v.toFixed(1) + (v > 0.3 ? ' 초 우세' : v < -0.3 ? ' 한 우세' : ' 비슷');
+  }
+  function analyze() {
+    if (!engineOK()) { rvProg.textContent = 'AI 엔진이 없어 평가 없이 돌려봅니다.'; return; }
+    var g = R.gen, n = R.positions.length, i = 0;
+    R.evals = new Array(n);
+    (function step() {
+      if (!R.active || g !== R.gen) return;
+      if (i >= n) { rvProg.textContent = '분석 완료 (' + n + '개 국면)'; reviewRender(); return; }
+      rvProg.textContent = '분석 중 ' + (i + 1) + '/' + n + ' …';
+      var side = turnAt(i);
+      eng.evaluate(S.startFen, S.uci.slice(0, i), 3, 500).then(function (list) {
+        if (!R.active || g !== R.gen) return;
+        var cp = list.length ? choCp(list[0], side) : null;
+        if (cp === null && i === n - 1 && S.winner && S.winner !== 'draw') cp = S.winner === 'cho' ? MATE_CP : -MATE_CP; // 외통 국면
+        R.evals[i] = { side: side, cands: list, cp: cp };
+        i++; drawGraph(); reviewRender(); step();
+      }, function () { R.evals[i] = { side: side, cands: [], cp: null }; i++; step(); });
+    })();
+  }
+  // 둔 수 k(0부터)의 손해: 두기 전 평가 - 둔 뒤 평가 (둔 쪽 기준)
+  function lossOf(k) {
+    var a = R.evals[k], b = R.evals[k + 1];
+    if (!a || !b || a.cp === null || b.cp === null) return null;
+    var best = a.cands.length ? a.cands[0].move : null;
+    if (best && S.uci[k] === best) return 0;
+    return sideCp(a.cp, a.side) - sideCp(b.cp, a.side);
+  }
+  function labelOf(loss) { return loss === null ? '' : loss >= BLUNDER ? 'bad' : loss >= MISTAKE ? 'meh' : 'ok'; }
+  function moveText(u, board) {
+    var mv = U.uciToMove(u); if (!mv) return u;
+    if (mv.pass) return '한 수 쉬기';
+    var p = board[mv.from.r][mv.from.c];
+    var num = function (q) { return (q.r + 1) + '' + (q.c + 1); };
+    return (p ? LABEL[p.side][p.t] : '') + num(mv.from) + '→' + num(mv.to);
+  }
+  function reviewRender() {
+    if (!R.active) return;
+    var i = R.idx, n = R.positions.length;
+    document.getElementById('rv-first').disabled = document.getElementById('rv-prev').disabled = i === 0;
+    document.getElementById('rv-next').disabled = document.getElementById('rv-last').disabled = i === n - 1;
+    var ev = R.evals[i], html = '';
+    html += '<div>' + (i === 0 ? '시작 국면' : '<b>' + i + '수</b> 둔 뒤') + ' · ' + SIDE_NAME[turnAt(i)] + ' 차례 · 평가 <b>' + (ev ? fmtCho(ev.cp) : '…') + '</b></div>';
+    if (i > 0) {
+      var k = i - 1, pe = R.evals[k], loss = lossOf(k), lab = labelOf(loss);
+      var played = moveText(S.uci[k], R.positions[k]);
+      var txt = SIDE_NAME[turnAt(k)] + ' ' + played;
+      if (lab === 'bad') txt += ' <span class="bad">실수 (−' + (loss / 100).toFixed(1) + ')</span>';
+      else if (lab === 'meh') txt += ' <span class="meh">악수 (−' + (loss / 100).toFixed(1) + ')</span>';
+      else if (lab === 'ok') txt += ' <span class="ok">' + (loss === 0 ? '정수' : '무난') + '</span>';
+      if (pe && pe.cands.length && lab && lab !== 'ok') txt += ' · 정수는 <b>' + moveText(pe.cands[0].move, R.positions[k]) + '</b>';
+      html += '<div>' + txt + '</div>';
+    }
+    if (ev && ev.cands.length) {
+      html += '<div>다음 정수(' + SIDE_NAME[ev.side] + ' 기준): ' + ev.cands.map(function (c, j) { return (j + 1) + ' ' + moveText(c.move, R.positions[i]) + ' (' + fmtScore(c.cp, c.mate, ev.side) + ')'; }).join(' · ') + '</div>';
+    }
+    rvInfo.innerHTML = html;
+    // 판 위: 이 국면의 후보수
+    clear(adviceG);
+    if (ev && ev.cands.length) showAdviceMarks(ev.cands, R.positions[i]);
+    drawGraph();
+  }
+  function showAdviceMarks(list, board) {
+    list.forEach(function (h, j) {
+      var mv = U.uciToMove(h.move); if (!mv || mv.pass) return;
+      var op = j === 0 ? .95 : .5, w = j === 0 ? 4 : 3;
+      el('line', { x1: px(mv.from.c), y1: px(mv.from.r), x2: px(mv.to.c), y2: px(mv.to.r), stroke: JADE, 'stroke-width': w, opacity: op, 'pointer-events': 'none' }, adviceG);
+      el('circle', { cx: px(mv.to.c), cy: px(mv.to.r), r: 9, fill: JADE, opacity: op, 'pointer-events': 'none' }, adviceG);
+      var t = el('text', { x: px(mv.to.c), y: px(mv.to.r) + 1, 'text-anchor': 'middle', 'dominant-baseline': 'central' }, adviceG); t.textContent = j + 1;
+    });
+  }
+  function drawGraph() {
+    clear(rvGraph);
+    var n = R.positions.length, W = 300, H = 76, mid = H / 2, LIM = 1000;
+    el('line', { x1: 0, y1: mid, x2: W, y2: mid, stroke: '#C9BCA6', 'stroke-width': 1 }, rvGraph);
+    var xs = function (i) { return n < 2 ? 0 : i / (n - 1) * W; };
+    var ys = function (cp) { var v = Math.max(-LIM, Math.min(LIM, cp)); return mid - v / LIM * (mid - 4); };
+    var pts = [];
+    for (var i = 0; i < n; i++) { var e = R.evals[i]; if (e && e.cp !== null) pts.push(xs(i).toFixed(1) + ',' + ys(e.cp).toFixed(1)); }
+    if (pts.length > 1) {
+      el('polygon', { points: pts[0].split(',')[0] + ',' + mid + ' ' + pts.join(' ') + ' ' + pts[pts.length - 1].split(',')[0] + ',' + mid, fill: INK.cho, opacity: .12 }, rvGraph);
+      el('polyline', { points: pts.join(' '), fill: 'none', stroke: INK.cho, 'stroke-width': 2, 'vector-effect': 'non-scaling-stroke' }, rvGraph);
+    }
+    for (var k = 0; k + 1 < n; k++) { var lab = labelOf(lossOf(k)); if (lab === 'bad' || lab === 'meh') { var e2 = R.evals[k + 1]; el('circle', { cx: xs(k + 1), cy: ys(e2.cp), r: 3.5, fill: lab === 'bad' ? INK.han : '#B7791F' }, rvGraph); } }
+    el('line', { x1: xs(R.idx), y1: 0, x2: xs(R.idx), y2: H, stroke: JADE, 'stroke-width': 2, 'vector-effect': 'non-scaling-stroke' }, rvGraph);
+    var t1 = el('text', { x: 3, y: 10, 'font-size': 9, fill: INK.cho, 'font-family': 'sans-serif' }, rvGraph); t1.textContent = '초';
+    var t2 = el('text', { x: 3, y: H - 3, 'font-size': 9, fill: INK.han, 'font-family': 'sans-serif' }, rvGraph); t2.textContent = '한';
+  }
+
+  // ---------- 기보 저장 / 열기 ----------
+  function gameRecord() {
+    return { app: 'janggi', version: 1, date: new Date().toISOString(), setupHan: S.setupHan, setupCho: S.setupCho, mode: MODE.kind, levels: { han: MODE.lv.han, cho: MODE.lv.cho },
+      moves: S.uci.slice(), history: S.history.map(function (h) { return h.type === 'move' ? { from: h.from, to: h.to } : { pass: true }; }), result: S.winner };
+  }
+  document.getElementById('rv-save').addEventListener('click', function () {
+    var rec = gameRecord(), d = new Date(), pad = function (x) { return (x < 10 ? '0' : '') + x; };
+    var name = '장기_' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '_' + pad(d.getHours()) + pad(d.getMinutes()) + '.json';
+    var blob = new Blob([JSON.stringify(rec, null, 1)], { type: 'application/json' });
+    var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+    rvProg.textContent = '저장함: ' + name;
+  });
+  function loadRecord(rec) {
+    if (!rec || rec.app !== 'janggi' || !rec.history) throw new Error('장기 기보 파일이 아닙니다.');
+    cancelEngine(); if (R.active) { R.active = false; R.gen++; reviewPanel.hidden = true; }
+    MODE.kind = 'hh'; chosen.han = rec.setupHan || 'NENE'; chosen.cho = rec.setupCho || 'NENE';
+    S = freshState(chosen.han, chosen.cho); S.started = true; buildNodes(); setupPanel.hidden = true;
+    rec.history.forEach(function (h) { if (h.pass) doPass(); else doMove(h.from, h.to); });
+    if (rec.result) S.winner = rec.result;
+    render(); enterReview();
+  }
+  document.getElementById('rv-load').addEventListener('click', function () { document.getElementById('rv-file').click(); });
+  document.getElementById('rv-file').addEventListener('change', function () {
+    var f = this.files[0]; this.value = ''; if (!f) return;
+    var rd = new FileReader();
+    rd.onload = function () { try { loadRecord(JSON.parse(rd.result)); } catch (e) { rvProg.textContent = '열기 실패: ' + e.message; } };
+    rd.readAsText(f);
+  });
+
+  // ---------- 새 판 / 배치 ----------
+  var resetBtn = document.getElementById('reset'), resetLabel = document.getElementById('reset-label'), armed = null;
+  resetBtn.addEventListener('click', function () {
+    if (!armed && S.history.length > 0 && !S.winner) {
+      resetBtn.classList.add('warn'); resetLabel.textContent = '한 번 더 누르면 새 판';
+      armed = setTimeout(disarm, 3000); return;
+    }
+    disarm(); openSetup();
+  });
+  function disarm() { clearTimeout(armed); armed = null; resetBtn.classList.remove('warn'); resetLabel.textContent = '새 판'; }
+
+  var setupPanel = document.getElementById('setup');
+  var chosen = { han: 'NENE', cho: 'NENE' };
+  function buildOpts(side) {
+    var box = document.getElementById('opts-' + side); box.innerHTML = '';
+    SETUP_KEYS.forEach(function (k) {
+      var b = document.createElement('button'); b.type = 'button'; b.textContent = SETUP_LABEL[k]; b.title = J.SETUPS[k];
+      b.classList.toggle('on', chosen[side] === k);
+      b.addEventListener('click', function () { chosen[side] = k; buildOpts(side); });
+      box.appendChild(b);
+    });
+  }
+  function openSetup() {
+    cancelEngine();
+    if (R.active) { R.active = false; R.gen++; reviewPanel.hidden = true; }
+    S = freshState(chosen.han, chosen.cho); S.started = false;
+    buildNodes(); buildOpts('han'); buildOpts('cho'); refreshModeUI();
+    setupPanel.hidden = false; render();
+  }
+  document.getElementById('go').addEventListener('click', function () {
+    cancelEngine();
+    S = freshState(chosen.han, chosen.cho); S.started = true;
+    buildNodes(); setupPanel.hidden = true; render(); scheduleAI(300);
+  });
+
+  // 대국 방식 패널
+  var modeBtns = Array.prototype.slice.call(document.querySelectorAll('#modes button'));
+  var colorBtns = Array.prototype.slice.call(document.querySelectorAll('#row-color button'));
+  var engStatus = document.getElementById('eng-status'), goBtn = document.getElementById('go');
+  function refreshModeUI() {
+    modeBtns.forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-mode') === MODE.kind); });
+    colorBtns.forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-color') === MODE.human); });
+    document.getElementById('row-color').hidden = MODE.kind !== 'ha';
+    document.getElementById('row-lv-ai').hidden = MODE.kind !== 'ha';
+    document.getElementById('row-lv-cho').hidden = MODE.kind !== 'aa';
+    document.getElementById('row-lv-han').hidden = MODE.kind !== 'aa';
+    var aiMode = MODE.kind !== 'hh';
+    engStatus.hidden = !aiMode;
+    goBtn.disabled = aiMode && !engineOK();
+    goBtn.textContent = aiMode && !engineOK() ? (eng && eng.failed ? 'AI 사용 불가' : 'AI 준비 중…') : '대국 시작';
+  }
+  modeBtns.forEach(function (b) { b.addEventListener('click', function () { MODE.kind = b.getAttribute('data-mode'); refreshModeUI(); }); });
+  colorBtns.forEach(function (b) { b.addEventListener('click', function () { MODE.human = b.getAttribute('data-color'); refreshModeUI(); }); });
+  function bindLevel(id, apply) {
+    var inp = document.getElementById(id), out = document.getElementById(id + '-v');
+    inp.addEventListener('input', function () { out.textContent = inp.value; apply(+inp.value); });
+  }
+  bindLevel('lv-ai', function (v) { MODE.lv.han = v; MODE.lv.cho = v; });
+  bindLevel('lv-cho', function (v) { MODE.lv.cho = v; });
+  bindLevel('lv-han', function (v) { MODE.lv.han = v; });
+  modeBtns.forEach(function (b) { b.addEventListener('click', function () { // 모드 바꿀 때 슬라이더 값을 다시 읽는다
+    if (MODE.kind === 'ha') { var v = +document.getElementById('lv-ai').value; MODE.lv.han = v; MODE.lv.cho = v; }
+    else if (MODE.kind === 'aa') { MODE.lv.cho = +document.getElementById('lv-cho').value; MODE.lv.han = +document.getElementById('lv-han').value; }
+  }); });
+
+  // 엔진 로드(브라우저 WebAssembly). file:// 로 열면 SharedArrayBuffer 가 없어 사용 불가.
+  eng = new JanggiEngine({ nnue: 'engine/janggi.nnue', onStatus: function (s) {
+    var bad = /없는|불가|실패/.test(s);
+    engStatus.textContent = s; engStatus.classList.toggle('bad', bad);
+    if (bad) eng.failed = true;
+    refreshModeUI();
+  } });
+  var engReady = eng.init().then(function () { refreshModeUI(); render(); });
+
+  openSetup();
+  // 테스트용 URL 해시: #start(바로 시작) mode=hh|ha|aa lv=N human=cho|han slow=ms(load 지연) debug(상태 출력)
+  var q = location.search + location.hash, m;
+  if ((m = /mode=(hh|ha|aa)/.exec(q))) MODE.kind = m[1];
+  if ((m = /human=(cho|han)/.exec(q))) MODE.human = m[1];
+  if ((m = /lv=(\d+)/.exec(q))) MODE.lv.han = MODE.lv.cho = +m[1];
+  if ((m = /slow=(\d+)/.exec(q))) { var im = new Image(); im.src = '/slow?ms=' + m[1]; im.alt = ''; document.body.appendChild(im); }
+  refreshModeUI();
+  var DEBUG = /debug/.test(q);
+  if (DEBUG) {
+    var note = document.getElementById('note'), render0 = render;
+    render = function () { render0(); note.textContent = 'vw ' + window.innerWidth + ' / scroll ' + document.documentElement.scrollWidth + ' / app ' + document.querySelector('.app').offsetWidth + ' / frame ' + document.querySelector('.frame').offsetWidth + ' | eng ' + (eng ? (eng.available ? 'ok' : 'no') : '-') + ' | moves ' + S.history.length + ' | uci ' + S.uci.join(' ') + ' | fen ' + S.startFen + (R.active ? ' | review idx ' + R.idx + ' evals ' + R.evals.filter(function (e) { return e && e.cp !== null; }).length + '/' + R.positions.length + ' prog ' + rvProg.textContent + ' info ' + rvInfo.textContent : ''); };
+  }
+  if (/(^|[?&#])start(&|$)/.test(q)) {
+    if (MODE.kind === 'hh') document.getElementById('go').click();
+    else engReady.then(function () { if (engineOK()) document.getElementById('go').click(); }); // AI 모드는 엔진 준비 후 시작
+  }
+  // 테스트용 자동 조작: steps=tap:c,r;undo;pass;hint  (각 단계는 AI·훈수 계산이 끝난 뒤 실행)
+  if (DEBUG && (m = /steps=([^&#]+)/.exec(q))) {
+    var steps = m[1].split(';'), si = 0;
+    (MODE.kind === 'hh' ? Promise.resolve() : engReady).then(function () { setTimeout(runStep, 600); });
+    function runStep() {
+      if (si >= steps.length) return;
+      if (thinking || hinting || (!R.active && S.started && aiSide(S.turn) && !S.winner)) return setTimeout(runStep, 200);
+      var st = steps[si++], mm;
+      if ((mm = /^tap:(\d),(\d)$/.exec(st))) tap(+mm[1], +mm[2]);
+      else if (st === 'undo' || st === 'pass' || st === 'hint') document.getElementById(st).click();
+      else if (st === 'review') document.getElementById('review-btn').click();
+      else if (st === 'exit') exitReview();
+      else if ((mm = /^rv:(\d+)$/.exec(st))) goIdx(+mm[1]);
+      else if (st === 'wait') { if (R.active && !/완료|없어/.test(rvProg.textContent)) si--; }
+      setTimeout(runStep, 300);
+    }
+  }
+  requestAnimationFrame(function () { requestAnimationFrame(function () { board.classList.add('ready'); }); });
+})();
+</script>
+
+</body>
+</html>
