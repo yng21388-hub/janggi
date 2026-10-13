@@ -58,8 +58,10 @@
 
   JanggiEngine.prototype.init = function () {
     var self = this;
-    if (typeof SharedArrayBuffer === 'undefined' || typeof Stockfish !== 'function') {
-      self.onStatus('AI 엔진을 쓸 수 없는 환경입니다. (서버로 열어야 합니다)'); self.available = false;
+    if (typeof SharedArrayBuffer === 'undefined' || typeof Stockfish !== 'function' || (typeof crossOriginIsolated !== 'undefined' && !crossOriginIsolated)) {
+      // 교차 출처 격리가 안 된 상태. file:// 은 방법이 없고, 웹에서는 coi-serviceworker 가 곧 새로고침한다.
+      self.onStatus(location.protocol === 'file:' ? 'AI 엔진을 쓸 수 없는 환경입니다. (서버로 열어야 합니다)' : 'AI 준비 중… (보안 설정 적용 후 자동 새로고침)');
+      self.available = false; self.failed = location.protocol === 'file:';
       return Promise.resolve(false);
     }
     self.onStatus('AI 엔진 로드 중…');

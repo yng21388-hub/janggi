@@ -807,6 +807,7 @@ svg.board.kbd:focus #cursor { display: inline; }
     var bad = /없는|불가|실패/.test(s);
     engStatus.textContent = s; engStatus.classList.toggle('bad', bad);
     if (bad) eng.failed = true;
+    if (/자동 새로고침/.test(s)) setTimeout(function () { if (!self.crossOriginIsolated && !eng.available) { engStatus.textContent = 'AI 엔진을 쓸 수 없는 환경입니다. (브라우저가 서비스워커를 막았을 수 있음)'; engStatus.classList.add('bad'); eng.failed = true; refreshModeUI(); } }, 8000); // 새로고침이 안 오면 포기
     refreshModeUI();
   } });
   var engReady = eng.init().then(function () { refreshModeUI(); render(); });
