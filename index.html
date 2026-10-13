@@ -817,12 +817,15 @@ svg.board.kbd:focus #cursor { display: inline; }
     else if (MODE.kind === 'aa') { MODE.lv.cho = +document.getElementById('lv-cho').value; MODE.lv.han = +document.getElementById('lv-han').value; }
   }); });
 
+  // 카카오톡·네이버·인스타 등 앱 안의 브라우저(WebView)는 서비스워커·멀티스레드가 막혀 AI가 안 뜬다 → 바깥 브라우저로 열라고 안내
+  var IN_APP = /KAKAOTALK|NAVER\(inapp|Instagram|FBAN|FBAV|FB_IAB|Line\/|DaumApps|Snapchat|; wv\)/i.test(navigator.userAgent);
+  var IN_APP_MSG = '카카오톡·네이버 등 앱 안에서 열면 AI가 안 됩니다. 오른쪽 위 메뉴(⋮ 또는 공유)에서 「다른 브라우저로 열기」(Chrome·Safari)를 눌러주세요. 사람끼리 두기는 됩니다.';
   // 엔진 로드(브라우저 WebAssembly). file:// 로 열면 SharedArrayBuffer 가 없어 사용 불가.
   eng = new JanggiEngine({ nnue: 'engine/janggi.nnue', onStatus: function (s) {
     var bad = /없는|불가|실패/.test(s);
     engStatus.textContent = s; engStatus.classList.toggle('bad', bad);
     if (bad) eng.failed = true;
-    if (/자동 새로고침/.test(s)) setTimeout(function () { if (!self.crossOriginIsolated && !eng.available) { engStatus.textContent = 'AI 준비가 안 됩니다. 새로고침(F5)을 한 번 눌러보세요. 그래도 안 되면 이 브라우저는 지원하지 않습니다.'; engStatus.classList.add('bad'); eng.failed = true; refreshModeUI(); } }, 12000); // 새로고침이 안 오면 안내
+    if (/자동 새로고침/.test(s)) setTimeout(function () { if (!self.crossOriginIsolated && !eng.available) { engStatus.textContent = IN_APP ? IN_APP_MSG : 'AI 준비가 안 됩니다. 새로고침을 한 번 해보세요. 그래도 안 되면 이 브라우저는 지원하지 않습니다.'; engStatus.classList.add('bad'); eng.failed = true; refreshModeUI(); } }, IN_APP ? 4000 : 12000); // 새로고침이 안 오면 안내
     refreshModeUI();
   } });
   var engReady = eng.init().then(function () { refreshModeUI(); render(); });
