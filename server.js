@@ -8,6 +8,8 @@ http.createServer((req, res) => {
   if (p === '/slow') { const ms = +(new URL(req.url, 'http://x').searchParams.get('ms') || 5000); return setTimeout(() => { res.writeHead(200, { 'Content-Type': 'image/gif' }); res.end(Buffer.from('R0lGODlhAQABAAAAACw=', 'base64')); }, ms); } // 테스트용: load 이벤트를 늦춘다
   const f = path.join(ROOT, p);
   if (!f.startsWith(ROOT) || !fs.existsSync(f) || fs.statSync(f).isDirectory()) { res.writeHead(404); return res.end('not found'); }
-  res.writeHead(200, { 'Content-Type': TYPES[path.extname(f)] || 'application/octet-stream', 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'require-corp', 'Cache-Control': 'no-cache' });
+  const headers = { 'Content-Type': TYPES[path.extname(f)] || 'application/octet-stream', 'Cache-Control': 'no-cache' };
+  if (!process.env.NOCOI) { headers['Cross-Origin-Opener-Policy'] = 'same-origin'; headers['Cross-Origin-Embedder-Policy'] = 'require-corp'; } // NOCOI=1 이면 헤더 없이(GitHub Pages 흉내, 서비스워커 경로 테스트용)
+  res.writeHead(200, headers);
   fs.createReadStream(f).pipe(res);
 }).listen(PORT, () => console.log('장기앱 서버: http://localhost:' + PORT));

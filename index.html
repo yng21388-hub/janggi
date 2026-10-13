@@ -6,6 +6,21 @@
 <title>나무판 장기</title>
 <!-- GitHub Pages 처럼 보안 헤더를 못 거는 호스팅에서 AI 엔진(멀티스레드 WebAssembly)을 쓰기 위한 서비스워커. 첫 접속 때 한 번 새로고침된다. 로컬(node server.js)에서는 이미 격리돼 있어 아무 일도 안 한다. -->
 <script src="coi-serviceworker.js"></script>
+<script>
+// coi-serviceworker 의 새로고침이 첫 로드 중에 묻혀 버리는 경우가 있어(브라우저에 따라 가끔) 보험으로 한 번 더 새로고침한다. 세션당 1회만.
+(function () {
+  if (self.crossOriginIsolated || location.protocol === 'file:' || !('serviceWorker' in navigator)) return;
+  try { if (sessionStorage.getItem('janggiCoiReload')) return; } catch (e) { return; }
+  window.addEventListener('load', function () {
+    setTimeout(function () {
+      if (self.crossOriginIsolated) return;
+      navigator.serviceWorker.getRegistration().then(function (r) {
+        if (r && r.active) { try { sessionStorage.setItem('janggiCoiReload', '1'); } catch (e) {} location.reload(); }
+      });
+    }, 1500);
+  });
+})();
+</script>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@500;700;900&family=Noto+Serif+KR:wght@600;900&display=swap">
 <style>
 :root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
@@ -807,7 +822,7 @@ svg.board.kbd:focus #cursor { display: inline; }
     var bad = /없는|불가|실패/.test(s);
     engStatus.textContent = s; engStatus.classList.toggle('bad', bad);
     if (bad) eng.failed = true;
-    if (/자동 새로고침/.test(s)) setTimeout(function () { if (!self.crossOriginIsolated && !eng.available) { engStatus.textContent = 'AI 엔진을 쓸 수 없는 환경입니다. (브라우저가 서비스워커를 막았을 수 있음)'; engStatus.classList.add('bad'); eng.failed = true; refreshModeUI(); } }, 8000); // 새로고침이 안 오면 포기
+    if (/자동 새로고침/.test(s)) setTimeout(function () { if (!self.crossOriginIsolated && !eng.available) { engStatus.textContent = 'AI 준비가 안 됩니다. 새로고침(F5)을 한 번 눌러보세요. 그래도 안 되면 이 브라우저는 지원하지 않습니다.'; engStatus.classList.add('bad'); eng.failed = true; refreshModeUI(); } }, 12000); // 새로고침이 안 오면 안내
     refreshModeUI();
   } });
   var engReady = eng.init().then(function () { refreshModeUI(); render(); });
